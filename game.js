@@ -40,7 +40,7 @@ document.getElementById('start-button').onclick = () => {
 
       if (players[playerId]) {
         const srvHotbar = players[playerId].hotbar || [];
-        hotbar = srvHotbar.map((petal, i) => {
+        hotbar = srvHotbar.map((petal) => {
           if (!petal) return null;
           return {
             ...petal,
@@ -59,7 +59,6 @@ document.getElementById('start-button').onclick = () => {
           };
         });
 
-        // Use server authoritative position
         const me = players[playerId];
         camera.x = me.x - canvas.width / 2;
         camera.y = me.y - canvas.height / 2;
@@ -155,9 +154,11 @@ function gameLoop() {
       const step = (Math.PI * 2) / (activePetals.length || 1);
 
       activePetals.forEach((petal, i) => {
-        petal.angle += 0.05;
-        const px = screenX + Math.cos(petal.angle + i * step) * radius;
-        const py = screenY + Math.sin(petal.angle + i * step) * radius;
+        petal.angle = (petal.angle || (Math.random() * Math.PI * 2)) + 0.03;
+        const orbitAngle = petal.angle + i * step;
+        const px = screenX + Math.cos(orbitAngle) * radius;
+        const py = screenY + Math.sin(orbitAngle) * radius;
+
         ctx.fillStyle = petal.hp === 0 ? 'gray' : petal.color;
         ctx.beginPath();
         ctx.arc(px, py, 10, 0, Math.PI * 2);
@@ -228,10 +229,15 @@ function setupSlot(slot, index, type) {
 function createPetalElement(petal) {
   const el = document.createElement('div');
   el.draggable = true;
-  el.style.width = el.style.height = '100%';
-  el.style.background = petal.hp === 0 ? 'gray' : petal.color;
+  el.style.width = '30px';
+  el.style.height = '30px';
+  el.style.borderRadius = '50%';   // circle shape
+  el.style.backgroundColor = petal.hp === 0 ? 'gray' : petal.color;
+  el.style.border = '2px solid white';
+  el.style.boxSizing = 'border-box';
   el.title = `${petal.type} (${petal.damage} dmg)`;
   el.dataset.id = petal.id;
+  el.style.cursor = 'grab';
   el.ondragstart = (e) => {
     e.dataTransfer.setData('text/plain', petal.id);
   };
