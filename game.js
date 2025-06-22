@@ -16,34 +16,15 @@ const INVENTORY_SIZE = 10;
 let hotbar = [null, null, null, null, null];
 let inventory = new Array(INVENTORY_SIZE).fill(null);
 
-let petalIdCounter = 1;
-
-function createBasicPetal() {
-  return {
-    id: petalIdCounter++,
-    type: 'basic',
-    damage: 5,
-    color: 'cyan',
-    angle: 0
-  };
-}
-
 document.getElementById('start-button').onclick = () => {
   username = document.getElementById('username-input').value.trim();
   if (!username) return;
 
   document.getElementById('username-screen').style.display = 'none';
-
   socket = new WebSocket('wss://plorrabackend.onrender.com');
 
   socket.onopen = () => {
     socket.send(JSON.stringify({ type: 'join', username }));
-
-    // Start with some petals
-    for (let i = 0; i < 5; i++) {
-      inventory[i] = createBasicPetal();
-    }
-
     initInventoryUI();
   };
 
@@ -64,8 +45,8 @@ window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
 
 function gameLoop() {
   if (!playerId || !players[playerId]) return requestAnimationFrame(gameLoop);
-
   const me = players[playerId];
+
   if (keys['w']) me.y -= 3;
   if (keys['s']) me.y += 3;
   if (keys['a']) me.x -= 3;
@@ -73,54 +54,53 @@ function gameLoop() {
 
   camera.x = me.x - canvas.width / 2;
   camera.y = me.y - canvas.height / 2;
-
   socket.send(JSON.stringify({ type: 'move', x: me.x, y: me.y }));
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Draw petals on ground
-  Object.values(petalsOnGround).forEach(petal => {
+  // Petals on ground
+  for (const pid in petalsOnGround) {
+    const petal = petalsOnGround[pid];
     const screenX = petal.x - camera.x;
     const screenY = petal.y - camera.y;
     ctx.fillStyle = petal.color;
     ctx.beginPath();
     ctx.arc(screenX, screenY, 10, 0, Math.PI * 2);
     ctx.fill();
-  });
+  }
 
-  // Draw mobs with health bars
-  Object.values(mobs).forEach(mob => {
+  // Mobs
+  for (const mid in mobs) {
+    const mob = mobs[mid];
     const screenX = mob.x - camera.x;
     const screenY = mob.y - camera.y;
 
     ctx.fillStyle = mob.color;
     ctx.beginPath();
-
     if (mob.shape === 'circle') {
       ctx.arc(screenX, screenY, 20, 0, Math.PI * 2);
-      ctx.fill();
     } else if (mob.shape === 'triangle') {
       ctx.moveTo(screenX, screenY - 20);
       ctx.lineTo(screenX - 17, screenY + 10);
       ctx.lineTo(screenX + 17, screenY + 10);
       ctx.closePath();
-      ctx.fill();
     }
+    ctx.fill();
 
     // Health bar
     ctx.fillStyle = 'red';
     ctx.fillRect(screenX - 20, screenY - 30, 40, 5);
     ctx.fillStyle = 'lime';
     ctx.fillRect(screenX - 20, screenY - 30, 40 * (mob.hp / mob.maxHp), 5);
-  });
+  }
 
-  // Draw players with health bars and username
-  for (const id in players) {
-    const p = players[id];
+  // Players
+  for (const pid in players) {
+    const p = players[pid];
     const screenX = p.x - camera.x;
     const screenY = p.y - camera.y;
 
-    ctx.fillStyle = id === playerId ? '#4df' : '#fff';
+    ctx.fillStyle = pid === playerId ? '#4df' : '#fff';
     ctx.beginPath();
     ctx.arc(screenX, screenY, 20, 0, Math.PI * 2);
     ctx.fill();
@@ -130,14 +110,14 @@ function gameLoop() {
     ctx.textAlign = 'center';
     ctx.fillText(p.username, screenX, screenY - 30);
 
-    // Player health bar
+    // Health bar
     ctx.fillStyle = 'red';
     ctx.fillRect(screenX - 20, screenY + 25, 40, 5);
     ctx.fillStyle = 'lime';
     ctx.fillRect(screenX - 20, screenY + 25, 40 * (p.hp / p.maxHp), 5);
 
-    // Draw orbiting petals for local player only
-    if (id === playerId) {
+    // Orbiting petals (for self only)
+    if (pid === playerId) {
       const radius = 40;
       const activePetals = hotbar.filter(Boolean);
       const step = (Math.PI * 2) / (activePetals.length || 1);
@@ -146,7 +126,7 @@ function gameLoop() {
         petal.angle += 0.05;
         const px = screenX + Math.cos(petal.angle + i * step) * radius;
         const py = screenY + Math.sin(petal.angle + i * step) * radius;
-        ctx.fillStyle = petal.color;
+        ctx.fillStyle = petal.hp === 0 ? 'gray' : petal.color;
         ctx.beginPath();
         ctx.arc(px, py, 10, 0, Math.PI * 2);
         ctx.fill();
@@ -154,31 +134,32 @@ function gameLoop() {
     }
   }
 
-  // Check for petal pickup
-  Object.values(petalsOnGround).forEach(petal => {
+  // Petal pickup
+  for (const pid in petalsOnGround) {
+    const petal = petalsOnGround[pid];
     const dist = Math.hypot(me.x - petal.x, me.y - petal.y);
     if (dist < 30) {
-      // Pick it up: add to inventory if space
-      let placed = false;
       for (let i = 0; i < INVENTORY_SIZE; i++) {
         if (!inventory[i]) {
           inventory[i] = {
             id: petal.id,
             type: petal.type,
             damage: petal.damage,
+            hp: 100,
             color: petal.color,
             angle: 0,
+            cooldown: 0
           };
-          placed = true;
+          delete petalsOnGround[pid];
+          sendInventoryUpdate();
           break;
         }
       }
-      if (placed) {
-        delete petalsOnGround[petal.id];
-        sendInventoryUpdate();
-      }
     }
-  });
+  }
+
+  // Send attack signal
+  socket.send(JSON.stringify({ type: 'attackTick' }));
 
   requestAnimationFrame(gameLoop);
 }
@@ -186,7 +167,6 @@ function gameLoop() {
 function initInventoryUI() {
   const hotbarEl = document.getElementById('hotbar');
   const invEl = document.getElementById('inventory');
-
   hotbarEl.innerHTML = '';
   invEl.innerHTML = '';
 
@@ -195,7 +175,6 @@ function initInventoryUI() {
     setupSlot(slot, i, 'hotbar');
     hotbarEl.appendChild(slot);
   }
-
   for (let i = 0; i < INVENTORY_SIZE; i++) {
     const slot = document.createElement('div');
     setupSlot(slot, i, 'inventory');
@@ -217,7 +196,7 @@ function createPetalElement(petal) {
   const el = document.createElement('div');
   el.draggable = true;
   el.style.width = el.style.height = '100%';
-  el.style.background = petal.color;
+  el.style.background = petal.hp === 0 ? 'gray' : petal.color;
   el.title = `${petal.type} (${petal.damage} dmg)`;
   el.dataset.id = petal.id;
   el.ondragstart = (e) => {
@@ -229,12 +208,10 @@ function createPetalElement(petal) {
 function renderInventory() {
   const hotbarEls = document.getElementById('hotbar').children;
   const invEls = document.getElementById('inventory').children;
-
   for (let i = 0; i < HOTBAR_SIZE; i++) {
     hotbarEls[i].innerHTML = '';
     if (hotbar[i]) hotbarEls[i].appendChild(createPetalElement(hotbar[i]));
   }
-
   for (let i = 0; i < INVENTORY_SIZE; i++) {
     invEls[i].innerHTML = '';
     if (inventory[i]) invEls[i].appendChild(createPetalElement(inventory[i]));
@@ -279,4 +256,5 @@ function sendInventoryUpdate() {
 }
 
 requestAnimationFrame(gameLoop);
+
 
