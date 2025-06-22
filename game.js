@@ -15,7 +15,7 @@ document.getElementById('start-button').onclick = () => {
 
   document.getElementById('username-screen').style.display = 'none';
 
-  socket = new WebSocket('wss://factionwarsbackend.onrender.com'); // Replace with your Render WebSocket URL
+  socket = new WebSocket('wss://plorrabackend.onrender.com'); // Replace with your Render WebSocket URL
 
   socket.onopen = () => {
     socket.send(JSON.stringify({ type: 'join', username }));
