@@ -44,7 +44,7 @@ document.getElementById('start-button').onclick = () => {
           if (!petal) return null;
           return {
             ...petal,
-            angle: petal.angle !== undefined ? petal.angle : Math.random() * Math.PI * 2,
+            baseAngle: petal.baseAngle !== undefined ? petal.baseAngle : Math.random() * Math.PI * 2,
             hp: petal.hp === undefined ? 100 : petal.hp
           };
         });
@@ -54,7 +54,7 @@ document.getElementById('start-button').onclick = () => {
           if (!petal) return null;
           return {
             ...petal,
-            angle: petal.angle !== undefined ? petal.angle : Math.random() * Math.PI * 2,
+            baseAngle: petal.baseAngle !== undefined ? petal.baseAngle : Math.random() * Math.PI * 2,
             hp: petal.hp === undefined ? 100 : petal.hp
           };
         });
@@ -154,8 +154,8 @@ function gameLoop() {
       const step = (Math.PI * 2) / (activePetals.length || 1);
 
       activePetals.forEach((petal, i) => {
-        petal.angle = (petal.angle || (Math.random() * Math.PI * 2)) + 0.03;
-        const orbitAngle = petal.angle + i * step;
+        petal.baseAngle += 0.03;
+        const orbitAngle = petal.baseAngle + i * step;
         const px = screenX + Math.cos(orbitAngle) * radius;
         const py = screenY + Math.sin(orbitAngle) * radius;
 
@@ -180,7 +180,7 @@ function gameLoop() {
             damage: petal.damage,
             hp: 100,
             color: petal.color,
-            angle: Math.random() * Math.PI * 2,
+            baseAngle: Math.random() * Math.PI * 2,
             cooldown: 0
           };
           delete petalsOnGround[pid];
@@ -295,3 +295,4 @@ function sendInventoryUpdate() {
 }
 
 requestAnimationFrame(gameLoop);
+
