@@ -6,6 +6,8 @@ canvas.height = window.innerHeight;
 let socket;
 let playerId = null;
 let players = {};
+let mobs = {};
+let petalsOnGround = {};
 let username = '';
 let camera = { x: 0, y: 0 };
 
@@ -48,7 +50,11 @@ document.getElementById('start-button').onclick = () => {
   socket.onmessage = (event) => {
     const data = JSON.parse(event.data);
     if (data.type === 'init') playerId = data.id;
-    else if (data.type === 'state') players = data.players;
+    else if (data.type === 'state') {
+      players = data.players || {};
+      mobs = data.mobs || {};
+      petalsOnGround = data.petalsOnGround || {};
+    }
   };
 };
 
@@ -72,6 +78,43 @@ function gameLoop() {
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+  // Draw petals on ground
+  Object.values(petalsOnGround).forEach(petal => {
+    const screenX = petal.x - camera.x;
+    const screenY = petal.y - camera.y;
+    ctx.fillStyle = petal.color;
+    ctx.beginPath();
+    ctx.arc(screenX, screenY, 10, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // Draw mobs with health bars
+  Object.values(mobs).forEach(mob => {
+    const screenX = mob.x - camera.x;
+    const screenY = mob.y - camera.y;
+
+    ctx.fillStyle = mob.color;
+    ctx.beginPath();
+
+    if (mob.shape === 'circle') {
+      ctx.arc(screenX, screenY, 20, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (mob.shape === 'triangle') {
+      ctx.moveTo(screenX, screenY - 20);
+      ctx.lineTo(screenX - 17, screenY + 10);
+      ctx.lineTo(screenX + 17, screenY + 10);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Health bar
+    ctx.fillStyle = 'red';
+    ctx.fillRect(screenX - 20, screenY - 30, 40, 5);
+    ctx.fillStyle = 'lime';
+    ctx.fillRect(screenX - 20, screenY - 30, 40 * (mob.hp / mob.maxHp), 5);
+  });
+
+  // Draw players with health bars and username
   for (const id in players) {
     const p = players[id];
     const screenX = p.x - camera.x;
@@ -87,10 +130,18 @@ function gameLoop() {
     ctx.textAlign = 'center';
     ctx.fillText(p.username, screenX, screenY - 30);
 
+    // Player health bar
+    ctx.fillStyle = 'red';
+    ctx.fillRect(screenX - 20, screenY + 25, 40, 5);
+    ctx.fillStyle = 'lime';
+    ctx.fillRect(screenX - 20, screenY + 25, 40 * (p.hp / p.maxHp), 5);
+
+    // Draw orbiting petals for local player only
     if (id === playerId) {
       const radius = 40;
       const activePetals = hotbar.filter(Boolean);
-      const step = (Math.PI * 2) / activePetals.length;
+      const step = (Math.PI * 2) / (activePetals.length || 1);
+
       activePetals.forEach((petal, i) => {
         petal.angle += 0.05;
         const px = screenX + Math.cos(petal.angle + i * step) * radius;
@@ -102,6 +153,32 @@ function gameLoop() {
       });
     }
   }
+
+  // Check for petal pickup
+  Object.values(petalsOnGround).forEach(petal => {
+    const dist = Math.hypot(me.x - petal.x, me.y - petal.y);
+    if (dist < 30) {
+      // Pick it up: add to inventory if space
+      let placed = false;
+      for (let i = 0; i < INVENTORY_SIZE; i++) {
+        if (!inventory[i]) {
+          inventory[i] = {
+            id: petal.id,
+            type: petal.type,
+            damage: petal.damage,
+            color: petal.color,
+            angle: 0,
+          };
+          placed = true;
+          break;
+        }
+      }
+      if (placed) {
+        delete petalsOnGround[petal.id];
+        sendInventoryUpdate();
+      }
+    }
+  });
 
   requestAnimationFrame(gameLoop);
 }
@@ -189,6 +266,17 @@ function handleDrop(e) {
   else hotbar[fromIndex] = null;
 
   renderInventory();
+  sendInventoryUpdate();
+}
+
+function sendInventoryUpdate() {
+  if (!socket || socket.readyState !== WebSocket.OPEN) return;
+  socket.send(JSON.stringify({
+    type: 'updateInventory',
+    hotbar,
+    inventory
+  }));
 }
 
 requestAnimationFrame(gameLoop);
+
