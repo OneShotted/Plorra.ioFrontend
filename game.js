@@ -34,31 +34,35 @@ document.getElementById('start-button').onclick = () => {
       playerId = data.id;
     }
     else if (data.type === 'state') {
-      // Update all players and mobs from server
       players = data.players || {};
       mobs = data.mobs || {};
       petalsOnGround = data.petalsOnGround || {};
 
-      // Update local hotbar and inventory from server's player data
       if (players[playerId]) {
-        // Deep copy and initialize petals if needed
         const srvHotbar = players[playerId].hotbar || [];
-        hotbar = srvHotbar.map(petal => petal ? ({
-          ...petal,
-          angle: petal.angle || 0,
-          hp: petal.hp === undefined ? 100 : petal.hp
-        }) : null);
+        hotbar = srvHotbar.map((petal, i) => {
+          if (!petal) return null;
+          return {
+            ...petal,
+            angle: petal.angle !== undefined ? petal.angle : Math.random() * Math.PI * 2,
+            hp: petal.hp === undefined ? 100 : petal.hp
+          };
+        });
 
         const srvInventory = players[playerId].inventory || [];
-        inventory = srvInventory.map(petal => petal ? ({
-          ...petal,
-          angle: petal.angle || 0,
-          hp: petal.hp === undefined ? 100 : petal.hp
-        }) : null);
+        inventory = srvInventory.map((petal) => {
+          if (!petal) return null;
+          return {
+            ...petal,
+            angle: petal.angle !== undefined ? petal.angle : Math.random() * Math.PI * 2,
+            hp: petal.hp === undefined ? 100 : petal.hp
+          };
+        });
 
         // Use server authoritative position
-        camera.x = players[playerId].x - canvas.width / 2;
-        camera.y = players[playerId].y - canvas.height / 2;
+        const me = players[playerId];
+        camera.x = me.x - canvas.width / 2;
+        camera.y = me.y - canvas.height / 2;
       }
     }
   };
@@ -72,26 +76,15 @@ function gameLoop() {
   if (!playerId || !players[playerId]) return requestAnimationFrame(gameLoop);
   const me = players[playerId];
 
-  // Movement input sent to server
-  let moved = false;
-  if (keys['w']) {
-    me.y -= 3;
-    moved = true;
-  }
-  if (keys['s']) {
-    me.y += 3;
-    moved = true;
-  }
-  if (keys['a']) {
-    me.x -= 3;
-    moved = true;
-  }
-  if (keys['d']) {
-    me.x += 3;
-    moved = true;
-  }
-  if (moved) {
-    socket.send(JSON.stringify({ type: 'move', x: me.x, y: me.y }));
+  // Movement intent (dx, dy) sent to server instead of direct pos changes
+  let dx = 0, dy = 0;
+  if (keys['w']) dy -= 3;
+  if (keys['s']) dy += 3;
+  if (keys['a']) dx -= 3;
+  if (keys['d']) dx += 3;
+
+  if (dx !== 0 || dy !== 0) {
+    socket.send(JSON.stringify({ type: 'moveIntent', dx, dy }));
   }
 
   // Clear screen
@@ -155,7 +148,7 @@ function gameLoop() {
     ctx.fillStyle = 'lime';
     ctx.fillRect(screenX - 20, screenY + 25, 40 * (p.hp / p.maxHp), 5);
 
-    // Orbiting petals for self only
+    // Orbiting petals only for self
     if (pid == playerId) {
       const radius = 40;
       const activePetals = hotbar.filter(Boolean);
@@ -173,7 +166,7 @@ function gameLoop() {
     }
   }
 
-  // Petal pickup logic
+  // Petal pickup
   for (const pid in petalsOnGround) {
     const petal = petalsOnGround[pid];
     const dist = Math.hypot(me.x - petal.x, me.y - petal.y);
@@ -186,7 +179,7 @@ function gameLoop() {
             damage: petal.damage,
             hp: 100,
             color: petal.color,
-            angle: 0,
+            angle: Math.random() * Math.PI * 2,
             cooldown: 0
           };
           delete petalsOnGround[pid];
@@ -197,7 +190,7 @@ function gameLoop() {
     }
   }
 
-  // Send attack signal to server
+  // Send attack signal
   if (socket && socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({ type: 'attackTick' }));
   }
@@ -205,8 +198,6 @@ function gameLoop() {
   renderInventory();
   requestAnimationFrame(gameLoop);
 }
-
-// Inventory UI
 
 function initInventoryUI() {
   const hotbarEl = document.getElementById('hotbar');
