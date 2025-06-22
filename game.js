@@ -13,7 +13,7 @@ let camera = { x: 0, y: 0 };
 
 const HOTBAR_SIZE = 5;
 const INVENTORY_SIZE = 10;
-let hotbar = [null, null, null, null, null];
+let hotbar = new Array(HOTBAR_SIZE).fill(null);
 let inventory = new Array(INVENTORY_SIZE).fill(null);
 
 document.getElementById('start-button').onclick = () => {
@@ -30,11 +30,36 @@ document.getElementById('start-button').onclick = () => {
 
   socket.onmessage = (event) => {
     const data = JSON.parse(event.data);
-    if (data.type === 'init') playerId = data.id;
+    if (data.type === 'init') {
+      playerId = data.id;
+    }
     else if (data.type === 'state') {
+      // Update all players and mobs from server
       players = data.players || {};
       mobs = data.mobs || {};
       petalsOnGround = data.petalsOnGround || {};
+
+      // Update local hotbar and inventory from server's player data
+      if (players[playerId]) {
+        // Deep copy and initialize petals if needed
+        const srvHotbar = players[playerId].hotbar || [];
+        hotbar = srvHotbar.map(petal => petal ? ({
+          ...petal,
+          angle: petal.angle || 0,
+          hp: petal.hp === undefined ? 100 : petal.hp
+        }) : null);
+
+        const srvInventory = players[playerId].inventory || [];
+        inventory = srvInventory.map(petal => petal ? ({
+          ...petal,
+          angle: petal.angle || 0,
+          hp: petal.hp === undefined ? 100 : petal.hp
+        }) : null);
+
+        // Use server authoritative position
+        camera.x = players[playerId].x - canvas.width / 2;
+        camera.y = players[playerId].y - canvas.height / 2;
+      }
     }
   };
 };
@@ -47,18 +72,32 @@ function gameLoop() {
   if (!playerId || !players[playerId]) return requestAnimationFrame(gameLoop);
   const me = players[playerId];
 
-  if (keys['w']) me.y -= 3;
-  if (keys['s']) me.y += 3;
-  if (keys['a']) me.x -= 3;
-  if (keys['d']) me.x += 3;
+  // Movement input sent to server
+  let moved = false;
+  if (keys['w']) {
+    me.y -= 3;
+    moved = true;
+  }
+  if (keys['s']) {
+    me.y += 3;
+    moved = true;
+  }
+  if (keys['a']) {
+    me.x -= 3;
+    moved = true;
+  }
+  if (keys['d']) {
+    me.x += 3;
+    moved = true;
+  }
+  if (moved) {
+    socket.send(JSON.stringify({ type: 'move', x: me.x, y: me.y }));
+  }
 
-  camera.x = me.x - canvas.width / 2;
-  camera.y = me.y - canvas.height / 2;
-  socket.send(JSON.stringify({ type: 'move', x: me.x, y: me.y }));
-
+  // Clear screen
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Petals on ground
+  // Draw petals on ground
   for (const pid in petalsOnGround) {
     const petal = petalsOnGround[pid];
     const screenX = petal.x - camera.x;
@@ -69,7 +108,7 @@ function gameLoop() {
     ctx.fill();
   }
 
-  // Mobs
+  // Draw mobs
   for (const mid in mobs) {
     const mob = mobs[mid];
     const screenX = mob.x - camera.x;
@@ -94,13 +133,13 @@ function gameLoop() {
     ctx.fillRect(screenX - 20, screenY - 30, 40 * (mob.hp / mob.maxHp), 5);
   }
 
-  // Players
+  // Draw players
   for (const pid in players) {
     const p = players[pid];
     const screenX = p.x - camera.x;
     const screenY = p.y - camera.y;
 
-    ctx.fillStyle = pid === playerId ? '#4df' : '#fff';
+    ctx.fillStyle = pid == playerId ? '#4df' : '#fff';
     ctx.beginPath();
     ctx.arc(screenX, screenY, 20, 0, Math.PI * 2);
     ctx.fill();
@@ -116,8 +155,8 @@ function gameLoop() {
     ctx.fillStyle = 'lime';
     ctx.fillRect(screenX - 20, screenY + 25, 40 * (p.hp / p.maxHp), 5);
 
-    // Orbiting petals (for self only)
-    if (pid === playerId) {
+    // Orbiting petals for self only
+    if (pid == playerId) {
       const radius = 40;
       const activePetals = hotbar.filter(Boolean);
       const step = (Math.PI * 2) / (activePetals.length || 1);
@@ -134,7 +173,7 @@ function gameLoop() {
     }
   }
 
-  // Petal pickup
+  // Petal pickup logic
   for (const pid in petalsOnGround) {
     const petal = petalsOnGround[pid];
     const dist = Math.hypot(me.x - petal.x, me.y - petal.y);
@@ -158,11 +197,16 @@ function gameLoop() {
     }
   }
 
-  // Send attack signal
-  socket.send(JSON.stringify({ type: 'attackTick' }));
+  // Send attack signal to server
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: 'attackTick' }));
+  }
 
+  renderInventory();
   requestAnimationFrame(gameLoop);
 }
+
+// Inventory UI
 
 function initInventoryUI() {
   const hotbarEl = document.getElementById('hotbar');
@@ -180,8 +224,6 @@ function initInventoryUI() {
     setupSlot(slot, i, 'inventory');
     invEl.appendChild(slot);
   }
-
-  renderInventory();
 }
 
 function setupSlot(slot, index, type) {
@@ -256,5 +298,3 @@ function sendInventoryUpdate() {
 }
 
 requestAnimationFrame(gameLoop);
-
-
