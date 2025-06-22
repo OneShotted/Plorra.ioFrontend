@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Plorra.io</title>
+  <style>
+    html, body {
+      margin: 0;
+      overflow: hidden;
+      background: #111;
+    }
+    #username-screen {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+    }
+    #username-input {
+      font-size: 24px;
+      padding: 10px;
+    }
+    #start-button {
+      font-size: 20px;
+      padding: 8px 16px;
+      margin-top: 10px;
+      cursor: pointer;
+    }
+    canvas {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div id="username-screen">
+    <h1 style="color:white; font-family:sans-serif;">Plorra.io</h1>
+    <input type="text" id="username-input" placeholder="Enter username" />
+    <br />
+    <button id="start-button">Play</button>
+  </div>
+  <canvas id="gameCanvas"></canvas>
+  <script src="game.js"></script>
+</body>
+</html>
