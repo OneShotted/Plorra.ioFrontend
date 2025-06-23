@@ -1,299 +1,391 @@
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
 
-let socket;
+const inventoryEl = document.getElementById("inventory");
+const hotbarEl = document.getElementById("hotbar");
+const combineBtn = document.getElementById("combineBtn");
+const playerNameInput = document.getElementById("playerName");
+const setNameBtn = document.getElementById("setNameBtn");
+const infoEl = document.getElementById("info");
+const chatContainer = document.getElementById("chatContainer");
+const chatToggleBtn = document.getElementById("chatToggleBtn");
+const chatMessages = document.getElementById("chatMessages");
+const chatInput = document.getElementById("chatInput");
+
+const WS_URL = "wss://plorrabackend.onrender.com"; 
+const socket = new WebSocket(WS_URL);
+
 let playerId = null;
 let players = {};
-let mobs = {};
-let petalsOnGround = {};
-let username = '';
-let camera = { x: 0, y: 0 };
+let enemies = {};
+let keys = {};
+let localInput = { vx: 0, vy: 0, retract: false };
+let lastTimestamp = 0;
 
-const HOTBAR_SIZE = 5;
-const INVENTORY_SIZE = 10;
-let hotbar = new Array(HOTBAR_SIZE).fill(null);
-let inventory = new Array(INVENTORY_SIZE).fill(null);
+let selectedInventory = new Set();
+let selectedHotbar = null;
 
-let orbitAngleOffset = 0;
-let isMouseDown = false;
-let currentOrbitRadius = 40;
-const retractedRadius = 40;
-const extendedRadius = 80;
+let mousePos = { x: 0, y: 0 };
 
-document.getElementById('start-button').onclick = () => {
-  username = document.getElementById('username-input').value.trim();
-  if (!username) return;
+// Game Constants
+const MAP_SIZE = 3000;
+const SAFE_ZONE_RADIUS = 200;
 
-  document.getElementById('username-screen').style.display = 'none';
-  socket = new WebSocket('wss://plorrabackend.onrender.com');
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
 
-  socket.onopen = () => {
-    socket.send(JSON.stringify({ type: 'join', username }));
-    initInventoryUI();
-  };
+function distance(a, b) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
 
-  socket.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-    if (data.type === 'init') {
-      playerId = data.id;
-    } else if (data.type === 'state') {
-      players = data.players || {};
-      mobs = data.mobs || {};
-      petalsOnGround = data.petalsOnGround || {};
+// Keyboard input
+window.addEventListener("keydown", (e) => {
+  if (e.repeat) return;
+  if (e.key === "ArrowUp" || e.key === "w") keys.up = true;
+  if (e.key === "ArrowDown" || e.key === "s") keys.down = true;
+  if (e.key === "ArrowLeft" || e.key === "a") keys.left = true;
+  if (e.key === "ArrowRight" || e.key === "d") keys.right = true;
+  if (e.key === "r") localInput.retract = true;
+});
 
-      if (players[playerId]) {
-        const srvHotbar = players[playerId].hotbar || [];
-        hotbar = srvHotbar.map((petal) => petal || null);
+window.addEventListener("keyup", (e) => {
+  if (e.key === "ArrowUp" || e.key === "w") keys.up = false;
+  if (e.key === "ArrowDown" || e.key === "s") keys.down = false;
+  if (e.key === "ArrowLeft" || e.key === "a") keys.left = false;
+  if (e.key === "ArrowRight" || e.key === "d") keys.right = false;
+  if (e.key === "r") localInput.retract = false;
+});
 
-        const srvInventory = players[playerId].inventory || [];
-        inventory = srvInventory.map((petal) => petal || null);
+// Mouse for drag & drop inventory
+let dragData = null;
 
-        const me = players[playerId];
-        camera.x = me.x - canvas.width / 2;
-        camera.y = me.y - canvas.height / 2;
+function renderPetalUI(container, petals, selectedSet, isHotbar = false) {
+  container.innerHTML = "";
+  petals.forEach((petal, idx) => {
+    const div = document.createElement("div");
+    div.className = `petal tier-${petal.tier} ${petal.type} ${petal.broken ? "broken" : ""}`;
+    div.title = `${petal.type.toUpperCase()} TIER ${petal.tier}`;
+    if (isHotbar && selectedHotbar === idx) div.classList.add("selected");
+    if (!isHotbar && selectedSet.has(idx)) div.classList.add("selected");
+
+    div.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      if (isHotbar) {
+        selectedHotbar = idx === selectedHotbar ? null : idx;
+        renderUI();
+      } else {
+        if (selectedSet.has(idx)) selectedSet.delete(idx);
+        else selectedSet.add(idx);
+        renderUI();
       }
+      dragData = { source: isHotbar ? "hotbar" : "inventory", index: idx, petal };
+    });
+
+    div.addEventListener("mouseup", (e) => {
+      if (dragData && dragData.source !== (isHotbar ? "hotbar" : "inventory")) {
+        // Move petal between inventory and hotbar on drop
+        if (dragData.source === "inventory" && isHotbar) {
+          movePetalBetweenInventoryAndHotbar(dragData.index, idx, "inventoryToHotbar");
+        } else if (dragData.source === "hotbar" && !isHotbar) {
+          movePetalBetweenInventoryAndHotbar(dragData.index, idx, "hotbarToInventory");
+        }
+        dragData = null;
+      }
+    });
+
+    container.appendChild(div);
+  });
+}
+
+function movePetalBetweenInventoryAndHotbar(invIndex, hotIndex, action) {
+  if (!players[playerId]) return;
+  const player = players[playerId];
+  const inventory = player.inventory;
+  const hotbar = player.petals;
+
+  if (action === "inventoryToHotbar") {
+    if (hotIndex >= hotbar.length) return;
+    // Swap or replace
+    if (inventory[invIndex]) {
+      const temp = hotbar[hotIndex];
+      hotbar[hotIndex] = inventory[invIndex];
+      inventory[invIndex] = temp;
     }
-  };
+  } else if (action === "hotbarToInventory") {
+    if (invIndex >= inventory.length) return;
+    if (hotbar[hotIndex]) {
+      const temp = inventory[invIndex];
+      inventory[invIndex] = hotbar[hotIndex];
+      hotbar[hotIndex] = temp;
+    }
+  }
+  sendInventoryUpdate(player);
+  renderUI();
+}
+
+function sendInventoryUpdate(player) {
+  socket.send(
+    JSON.stringify({
+      type: "input",
+      vx: localInput.vx,
+      vy: localInput.vy,
+      retract: localInput.retract,
+      action: "updatePetals",
+      payload: {
+        inventory: player.inventory,
+        petals: player.petals,
+      },
+    })
+  );
+}
+
+// Combine button handler
+combineBtn.onclick = () => {
+  if (selectedInventory.size !== 3) return alert("Select exactly 3 petals to combine.");
+  const indices = [...selectedInventory];
+  socket.send(
+    JSON.stringify({
+      type: "input",
+      action: "combinePetals",
+      payload: { indices },
+      vx: localInput.vx,
+      vy: localInput.vy,
+      retract: localInput.retract,
+    })
+  );
+  selectedInventory.clear();
+  renderUI();
 };
 
-// Handle mouse down/up for extending petals
-canvas.addEventListener('mousedown', (e) => {
-  if (e.button === 0) isMouseDown = true;
+setNameBtn.onclick = () => {
+  const name = playerNameInput.value.trim();
+  if (name.length === 0) return alert("Name cannot be empty");
+  socket.send(JSON.stringify({ type: "setName", name }));
+};
+
+chatToggleBtn.onclick = () => {
+  chatContainer.classList.toggle("hidden");
+  chatInput.focus();
+};
+
+chatInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && chatInput.value.trim() !== "") {
+    socket.send(
+      JSON.stringify({
+        type: "chat",
+        message: chatInput.value.trim(),
+      })
+    );
+    chatInput.value = "";
+  }
 });
-canvas.addEventListener('mouseup', (e) => {
-  if (e.button === 0) isMouseDown = false;
-});
-canvas.addEventListener('mouseleave', () => {
-  isMouseDown = false;
-});
 
-const keys = {};
-window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
-window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+socket.onopen = () => {
+  infoEl.textContent = "Connected to server.";
+};
+socket.onerror = () => {
+  infoEl.textContent = "Connection error.";
+};
+socket.onclose = () => {
+  infoEl.textContent = "Disconnected from server.";
+};
 
-function gameLoop() {
-  if (!playerId || !players[playerId]) return requestAnimationFrame(gameLoop);
-  const me = players[playerId];
-
-  let dx = 0, dy = 0;
-  if (keys['w']) dy -= 3;
-  if (keys['s']) dy += 3;
-  if (keys['a']) dx -= 3;
-  if (keys['d']) dx += 3;
-
-  if (dx !== 0 || dy !== 0) {
-    socket.send(JSON.stringify({ type: 'moveIntent', dx, dy }));
+socket.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  if (data.type === "welcome") {
+    playerId = data.id;
+  } else if (data.type === "update") {
+    players = {};
+    enemies = {};
+    data.players.forEach((p) => {
+      players[p.id] = p;
+    });
+    data.enemies.forEach((e) => {
+      enemies[e.id] = e;
+    });
+    renderUI();
+  } else if (data.type === "chat") {
+    addChatMessage(data.from, data.message);
+  } else if (data.type === "respawn") {
+    alert("You died! Respawning...");
   }
+};
 
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+function addChatMessage(sender, message) {
+  const div = document.createElement("div");
+  div.textContent = `${sender}: ${message}`;
+  chatMessages.appendChild(div);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
 
-  // Animate orbit radius
-  const targetRadius = isMouseDown ? extendedRadius : retractedRadius;
-  currentOrbitRadius += (targetRadius - currentOrbitRadius) * 0.2;
-  orbitAngleOffset += 0.02;
+// Main game loop
 
-  // Draw petals on ground
-  for (const pid in petalsOnGround) {
-    const petal = petalsOnGround[pid];
-    const screenX = petal.x - camera.x;
-    const screenY = petal.y - camera.y;
-    ctx.fillStyle = petal.color;
-    ctx.beginPath();
-    ctx.arc(screenX, screenY, 10, 0, Math.PI * 2);
-    ctx.fill();
+function updateInput() {
+  let vx = 0,
+    vy = 0;
+  if (keys.up) vy -= 1;
+  if (keys.down) vy += 1;
+  if (keys.left) vx -= 1;
+  if (keys.right) vx += 1;
+  const len = Math.hypot(vx, vy);
+  if (len > 0) {
+    vx /= len;
+    vy /= len;
   }
+  localInput.vx = vx;
+  localInput.vy = vy;
 
-  // Draw mobs
-  for (const mid in mobs) {
-    const mob = mobs[mid];
-    const screenX = mob.x - camera.x;
-    const screenY = mob.y - camera.y;
+  socket.send(
+    JSON.stringify({
+      type: "input",
+      vx: localInput.vx,
+      vy: localInput.vy,
+      retract: localInput.retract,
+    })
+  );
+}
 
-    ctx.fillStyle = mob.color;
-    ctx.beginPath();
-    if (mob.shape === 'circle') {
-      ctx.arc(screenX, screenY, 20, 0, Math.PI * 2);
-    } else if (mob.shape === 'triangle') {
-      ctx.moveTo(screenX, screenY - 20);
-      ctx.lineTo(screenX - 17, screenY + 10);
-      ctx.lineTo(screenX + 17, screenY + 10);
-      ctx.closePath();
-    }
-    ctx.fill();
+function gameLoop(timestamp) {
+  if (!lastTimestamp) lastTimestamp = timestamp;
+  const delta = (timestamp - lastTimestamp) / 1000;
+  lastTimestamp = timestamp;
 
-    ctx.fillStyle = 'red';
-    ctx.fillRect(screenX - 20, screenY - 30, 40, 5);
-    ctx.fillStyle = 'lime';
-    ctx.fillRect(screenX - 20, screenY - 30, 40 * (mob.hp / mob.maxHp), 5);
-  }
+  updateInput();
 
-  // Draw players
-  for (const pid in players) {
-    const p = players[pid];
-    const screenX = p.x - camera.x;
-    const screenY = p.y - camera.y;
+  drawGame();
 
-    ctx.fillStyle = pid == playerId ? '#4df' : '#fff';
-    ctx.beginPath();
-    ctx.arc(screenX, screenY, 20, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = '#fff';
-    ctx.font = '16px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(p.username, screenX, screenY - 30);
-
-    ctx.fillStyle = 'red';
-    ctx.fillRect(screenX - 20, screenY + 25, 40, 5);
-    ctx.fillStyle = 'lime';
-    ctx.fillRect(screenX - 20, screenY + 25, 40 * (p.hp / p.maxHp), 5);
-
-    // Orbiting petals (only for self)
-    if (pid == playerId) {
-      const radius = currentOrbitRadius;
-      const activePetals = hotbar.filter(Boolean);
-      const step = (Math.PI * 2) / (activePetals.length || 1);
-
-      activePetals.forEach((petal, i) => {
-        const orbitAngle = orbitAngleOffset + i * step;
-        const px = screenX + Math.cos(orbitAngle) * radius;
-        const py = screenY + Math.sin(orbitAngle) * radius;
-
-        ctx.fillStyle = petal.hp === 0 ? 'gray' : petal.color;
-        ctx.beginPath();
-        ctx.arc(px, py, 10, 0, Math.PI * 2);
-        ctx.fill();
-      });
-    }
-  }
-
-  // Petal pickup
-  for (const pid in petalsOnGround) {
-    const petal = petalsOnGround[pid];
-    const dist = Math.hypot(me.x - petal.x, me.y - petal.y);
-    if (dist < 30) {
-      for (let i = 0; i < INVENTORY_SIZE; i++) {
-        if (!inventory[i]) {
-          inventory[i] = {
-            id: petal.id,
-            type: petal.type,
-            damage: petal.damage,
-            hp: 100,
-            color: petal.color,
-            cooldown: 0
-          };
-          delete petalsOnGround[pid];
-          sendInventoryUpdate();
-          break;
-        }
-      }
-    }
-  }
-
-  // Only send attack when petals are extended
-  if (isMouseDown && socket?.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({ type: 'attackTick' }));
-  }
-
-  renderInventory();
   requestAnimationFrame(gameLoop);
 }
 
-function initInventoryUI() {
-  const hotbarEl = document.getElementById('hotbar');
-  const invEl = document.getElementById('inventory');
-  hotbarEl.innerHTML = '';
-  invEl.innerHTML = '';
+function drawGame() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  for (let i = 0; i < HOTBAR_SIZE; i++) {
-    const slot = document.createElement('div');
-    setupSlot(slot, i, 'hotbar');
-    hotbarEl.appendChild(slot);
+  if (!players[playerId]) return;
+
+  const player = players[playerId];
+
+  // Translate so player is centered
+  ctx.save();
+  ctx.translate(canvas.width / 2 - player.x, canvas.height / 2 - player.y);
+
+  // Draw safe zone
+  ctx.strokeStyle = "rgba(0, 255, 0, 0.3)";
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.arc(0, 0, SAFE_ZONE_RADIUS, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Draw players
+  Object.values(players).forEach((p) => {
+    if (p.dead) return;
+
+    // Draw core
+    ctx.fillStyle = p.id === playerId ? "#fff" : "#888";
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 20, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Health bar
+    ctx.fillStyle = "red";
+    ctx.fillRect(p.x - 20, p.y - 30, 40, 6);
+    ctx.fillStyle = "lime";
+    ctx.fillRect(p.x - 20, p.y - 30, (p.hp / p.maxHp) * 40, 6);
+
+    // Draw petals orbiting core
+    const petalCount = p.petals.length;
+    const time = performance.now() / 1000;
+    p.petals.forEach((petal, i) => {
+      let angle = time * 2 * p.orbitSpeed + (i * (2 * Math.PI)) / petalCount;
+      if (p.retracting) angle += Math.PI; // retract petals behind player
+
+      const orbitRadius = p.orbitRadius;
+
+      const px = p.x + orbitRadius * Math.cos(angle);
+      const py = p.y + orbitRadius * Math.sin(angle);
+
+      ctx.fillStyle = petalColor(petal.type);
+      if (petal.broken) ctx.globalAlpha = 0.3;
+
+      ctx.beginPath();
+      ctx.arc(px, py, 10 + (petal.tier - 1) * 4, 0, Math.PI * 2);
+      ctx.fill();
+
+      if (petal.broken) ctx.globalAlpha = 1;
+    });
+
+    // Draw player name
+    ctx.fillStyle = "white";
+    ctx.font = "14px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText(p.name || "Anonymous", p.x, p.y + 40);
+  });
+
+  // Draw enemies
+  Object.values(enemies).forEach((e) => {
+    if (e.dead) return;
+    ctx.fillStyle = enemyColor(e.type);
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, e.size, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Enemy HP bar
+    ctx.fillStyle = "red";
+    ctx.fillRect(e.x - e.size, e.y - e.size - 10, e.size * 2, 6);
+    ctx.fillStyle = "lime";
+    ctx.fillRect(e.x - e.size, e.y - e.size - 10, (e.hp / e.maxHp) * e.size * 2, 6);
+  });
+
+  ctx.restore();
+}
+
+function petalColor(type) {
+  switch (type) {
+    case "basic":
+      return "#fff";
+    case "rock":
+      return "#888";
+    case "fire":
+      return "#f55";
+    case "ice":
+      return "#5af";
+    case "poison":
+      return "#5f5";
+    case "electric":
+      return "#ffea00";
+    case "shield":
+      return "#a5a";
+    default:
+      return "#aaa";
   }
-  for (let i = 0; i < INVENTORY_SIZE; i++) {
-    const slot = document.createElement('div');
-    setupSlot(slot, i, 'inventory');
-    invEl.appendChild(slot);
+}
+
+function enemyColor(type) {
+  switch (type) {
+    case "wanderer":
+      return "#ff0";
+    case "chaser":
+      return "#f90";
+    case "spinner":
+      return "#f0f";
+    case "miniboss":
+      return "#f00";
+    default:
+      return "#999";
   }
 }
 
-function setupSlot(slot, index, type) {
-  slot.className = 'slot';
-  slot.dataset.slot = index;
-  slot.dataset.type = type;
-  slot.ondrop = handleDrop;
-  slot.ondragover = (e) => e.preventDefault();
+function renderUI() {
+  if (!players[playerId]) return;
+  const player = players[playerId];
+
+  renderPetalUI(inventoryEl, player.inventory || [], selectedInventory, false);
+  renderPetalUI(hotbarEl, player.petals || [], selectedHotbar !== null ? new Set([selectedHotbar]) : new Set(), true);
+
+  combineBtn.disabled = selectedInventory.size !== 3;
+
+  infoEl.textContent = `HP: ${player.hp}/${player.maxHp} | Level: ${player.level} | XP: ${player.xp} | Coins: ${player.coins} | Petals: ${player.petals.length}/${player.petalSlots} | Inventory: ${player.inventory.length}`;
 }
 
-function createPetalElement(petal) {
-  const el = document.createElement('div');
-  el.draggable = true;
-  el.style.width = '30px';
-  el.style.height = '30px';
-  el.style.borderRadius = '50%';
-  el.style.backgroundColor = petal.hp === 0 ? 'gray' : petal.color;
-  el.style.border = '2px solid white';
-  el.style.boxSizing = 'border-box';
-  el.title = `${petal.type} (${petal.damage} dmg)`;
-  el.dataset.id = petal.id;
-  el.style.cursor = 'grab';
-  el.ondragstart = (e) => {
-    e.dataTransfer.setData('text/plain', petal.id);
-  };
-  return el;
-}
-
-function renderInventory() {
-  const hotbarEls = document.getElementById('hotbar').children;
-  const invEls = document.getElementById('inventory').children;
-  for (let i = 0; i < HOTBAR_SIZE; i++) {
-    hotbarEls[i].innerHTML = '';
-    if (hotbar[i]) hotbarEls[i].appendChild(createPetalElement(hotbar[i]));
-  }
-  for (let i = 0; i < INVENTORY_SIZE; i++) {
-    invEls[i].innerHTML = '';
-    if (inventory[i]) invEls[i].appendChild(createPetalElement(inventory[i]));
-  }
-}
-
-function handleDrop(e) {
-  const targetSlot = parseInt(e.currentTarget.dataset.slot);
-  const targetType = e.currentTarget.dataset.type;
-  const petalId = parseInt(e.dataTransfer.getData('text/plain'));
-
-  let fromIndex = inventory.findIndex(p => p && p.id === petalId);
-  let fromType = 'inventory';
-  if (fromIndex === -1) {
-    fromIndex = hotbar.findIndex(p => p && p.id === petalId);
-    fromType = 'hotbar';
-  }
-
-  if (fromIndex === -1) return;
-  const movingPetal = (fromType === 'inventory' ? inventory : hotbar)[fromIndex];
-
-  if ((targetType === 'inventory' && inventory[targetSlot]) ||
-      (targetType === 'hotbar' && hotbar[targetSlot])) return;
-
-  if (targetType === 'inventory') inventory[targetSlot] = movingPetal;
-  else hotbar[targetSlot] = movingPetal;
-
-  if (fromType === 'inventory') inventory[fromIndex] = null;
-  else hotbar[fromIndex] = null;
-
-  renderInventory();
-  sendInventoryUpdate();
-}
-
-function sendInventoryUpdate() {
-  if (!socket || socket.readyState !== WebSocket.OPEN) return;
-  socket.send(JSON.stringify({
-    type: 'updateInventory',
-    hotbar,
-    inventory
-  }));
-}
-
+// Start game loop
 requestAnimationFrame(gameLoop);
-
