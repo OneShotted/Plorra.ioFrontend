@@ -16,6 +16,8 @@ const INVENTORY_SIZE = 10;
 let hotbar = new Array(HOTBAR_SIZE).fill(null);
 let inventory = new Array(INVENTORY_SIZE).fill(null);
 
+let orbitAngleOffset = 0;
+
 document.getElementById('start-button').onclick = () => {
   username = document.getElementById('username-input').value.trim();
   if (!username) return;
@@ -32,32 +34,17 @@ document.getElementById('start-button').onclick = () => {
     const data = JSON.parse(event.data);
     if (data.type === 'init') {
       playerId = data.id;
-    }
-    else if (data.type === 'state') {
+    } else if (data.type === 'state') {
       players = data.players || {};
       mobs = data.mobs || {};
       petalsOnGround = data.petalsOnGround || {};
 
       if (players[playerId]) {
         const srvHotbar = players[playerId].hotbar || [];
-        hotbar = srvHotbar.map((petal) => {
-          if (!petal) return null;
-          return {
-            ...petal,
-            baseAngle: petal.baseAngle !== undefined ? petal.baseAngle : Math.random() * Math.PI * 2,
-            hp: petal.hp === undefined ? 100 : petal.hp
-          };
-        });
+        hotbar = srvHotbar.map((petal) => petal || null);
 
         const srvInventory = players[playerId].inventory || [];
-        inventory = srvInventory.map((petal) => {
-          if (!petal) return null;
-          return {
-            ...petal,
-            baseAngle: petal.baseAngle !== undefined ? petal.baseAngle : Math.random() * Math.PI * 2,
-            hp: petal.hp === undefined ? 100 : petal.hp
-          };
-        });
+        inventory = srvInventory.map((petal) => petal || null);
 
         const me = players[playerId];
         camera.x = me.x - canvas.width / 2;
@@ -75,7 +62,6 @@ function gameLoop() {
   if (!playerId || !players[playerId]) return requestAnimationFrame(gameLoop);
   const me = players[playerId];
 
-  // Movement intent (dx, dy) sent to server instead of direct pos changes
   let dx = 0, dy = 0;
   if (keys['w']) dy -= 3;
   if (keys['s']) dy += 3;
@@ -86,7 +72,6 @@ function gameLoop() {
     socket.send(JSON.stringify({ type: 'moveIntent', dx, dy }));
   }
 
-  // Clear screen
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   // Draw petals on ground
@@ -118,7 +103,6 @@ function gameLoop() {
     }
     ctx.fill();
 
-    // Health bar
     ctx.fillStyle = 'red';
     ctx.fillRect(screenX - 20, screenY - 30, 40, 5);
     ctx.fillStyle = 'lime';
@@ -126,6 +110,8 @@ function gameLoop() {
   }
 
   // Draw players
+  orbitAngleOffset += 0.02;
+
   for (const pid in players) {
     const p = players[pid];
     const screenX = p.x - camera.x;
@@ -141,7 +127,6 @@ function gameLoop() {
     ctx.textAlign = 'center';
     ctx.fillText(p.username, screenX, screenY - 30);
 
-    // Health bar
     ctx.fillStyle = 'red';
     ctx.fillRect(screenX - 20, screenY + 25, 40, 5);
     ctx.fillStyle = 'lime';
@@ -154,8 +139,7 @@ function gameLoop() {
       const step = (Math.PI * 2) / (activePetals.length || 1);
 
       activePetals.forEach((petal, i) => {
-        petal.baseAngle += 0.03;
-        const orbitAngle = petal.baseAngle + i * step;
+        const orbitAngle = orbitAngleOffset + i * step;
         const px = screenX + Math.cos(orbitAngle) * radius;
         const py = screenY + Math.sin(orbitAngle) * radius;
 
@@ -180,7 +164,6 @@ function gameLoop() {
             damage: petal.damage,
             hp: 100,
             color: petal.color,
-            baseAngle: Math.random() * Math.PI * 2,
             cooldown: 0
           };
           delete petalsOnGround[pid];
@@ -191,11 +174,7 @@ function gameLoop() {
     }
   }
 
-  // Send attack signal
-  if (socket && socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({ type: 'attackTick' }));
-  }
-
+  socket?.readyState === WebSocket.OPEN && socket.send(JSON.stringify({ type: 'attackTick' }));
   renderInventory();
   requestAnimationFrame(gameLoop);
 }
@@ -231,7 +210,7 @@ function createPetalElement(petal) {
   el.draggable = true;
   el.style.width = '30px';
   el.style.height = '30px';
-  el.style.borderRadius = '50%';   // circle shape
+  el.style.borderRadius = '50%';
   el.style.backgroundColor = petal.hp === 0 ? 'gray' : petal.color;
   el.style.border = '2px solid white';
   el.style.boxSizing = 'border-box';
