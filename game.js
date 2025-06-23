@@ -17,6 +17,10 @@ let hotbar = new Array(HOTBAR_SIZE).fill(null);
 let inventory = new Array(INVENTORY_SIZE).fill(null);
 
 let orbitAngleOffset = 0;
+let isMouseDown = false;
+let currentOrbitRadius = 40;
+const retractedRadius = 40;
+const extendedRadius = 80;
 
 document.getElementById('start-button').onclick = () => {
   username = document.getElementById('username-input').value.trim();
@@ -54,6 +58,17 @@ document.getElementById('start-button').onclick = () => {
   };
 };
 
+// Handle mouse down/up for extending petals
+canvas.addEventListener('mousedown', (e) => {
+  if (e.button === 0) isMouseDown = true;
+});
+canvas.addEventListener('mouseup', (e) => {
+  if (e.button === 0) isMouseDown = false;
+});
+canvas.addEventListener('mouseleave', () => {
+  isMouseDown = false;
+});
+
 const keys = {};
 window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
 window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
@@ -73,6 +88,11 @@ function gameLoop() {
   }
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Animate orbit radius
+  const targetRadius = isMouseDown ? extendedRadius : retractedRadius;
+  currentOrbitRadius += (targetRadius - currentOrbitRadius) * 0.2;
+  orbitAngleOffset += 0.02;
 
   // Draw petals on ground
   for (const pid in petalsOnGround) {
@@ -110,8 +130,6 @@ function gameLoop() {
   }
 
   // Draw players
-  orbitAngleOffset += 0.02;
-
   for (const pid in players) {
     const p = players[pid];
     const screenX = p.x - camera.x;
@@ -132,9 +150,9 @@ function gameLoop() {
     ctx.fillStyle = 'lime';
     ctx.fillRect(screenX - 20, screenY + 25, 40 * (p.hp / p.maxHp), 5);
 
-    // Orbiting petals only for self
+    // Orbiting petals (only for self)
     if (pid == playerId) {
-      const radius = 40;
+      const radius = currentOrbitRadius;
       const activePetals = hotbar.filter(Boolean);
       const step = (Math.PI * 2) / (activePetals.length || 1);
 
@@ -174,7 +192,11 @@ function gameLoop() {
     }
   }
 
-  socket?.readyState === WebSocket.OPEN && socket.send(JSON.stringify({ type: 'attackTick' }));
+  // Only send attack when petals are extended
+  if (isMouseDown && socket?.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: 'attackTick' }));
+  }
+
   renderInventory();
   requestAnimationFrame(gameLoop);
 }
