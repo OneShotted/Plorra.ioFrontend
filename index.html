@@ -1,40 +1,20 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Petal.io Multiplayer</title>
-<link rel="stylesheet" href="style.css" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Clashdot.io</title>
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div id="ui">
-    <div id="top-bar">
-      <input id="playerName" placeholder="Enter your name" maxlength="15" />
-      <button id="setNameBtn">Set Name</button>
-      <div id="info"></div>
-      <button id="chatToggleBtn">Chat</button>
-    </div>
-
-    <canvas id="gameCanvas" width="960" height="640"></canvas>
-
-    <div id="inventoryContainer">
-      <h3>Inventory</h3>
-      <div id="inventory" class="item-container"></div>
-      <button id="combineBtn" disabled>Combine Selected (3)</button>
-    </div>
-
-    <div id="hotbarContainer">
-      <h3>Hotbar</h3>
-      <div id="hotbar" class="item-container"></div>
-    </div>
-
-    <div id="chatContainer" class="hidden">
-      <div id="chatMessages"></div>
-      <input id="chatInput" placeholder="Type a message and press Enter" />
-    </div>
+  <div id="loginScreen">
+    <input type="text" id="usernameInput" placeholder="Enter username" />
+    <button id="startBtn">Start Game</button>
   </div>
+  <canvas id="gameCanvas"></canvas>
+  <canvas id="minimapCanvas"></canvas>
 
-<script src="game.js"></script>
+  <script src="game.js"></script>
 </body>
 </html>
 
