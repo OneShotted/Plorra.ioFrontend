@@ -1,8 +1,9 @@
 body {
   margin: 0;
   overflow: hidden;
-  background: #111;
-  font-family: sans-serif;
+  background: #101010;
+  font-family: 'Segoe UI', sans-serif;
+  color: white;
 }
 
 #loginScreen {
@@ -14,17 +15,35 @@ body {
   z-index: 10;
 }
 
+#loginScreen h1 {
+  margin-bottom: 20px;
+  font-size: 36px;
+  color: #f5f552;
+}
+
 #usernameInput {
   padding: 10px;
   font-size: 18px;
-  width: 200px;
+  width: 220px;
+  border: none;
+  border-radius: 6px;
+  outline: none;
 }
 
 #startBtn {
   padding: 10px 20px;
   margin-left: 10px;
   font-size: 18px;
+  background: #f5f552;
+  color: #000;
+  border: none;
+  border-radius: 6px;
   cursor: pointer;
+  transition: 0.2s;
+}
+
+#startBtn:hover {
+  background: #fff94d;
 }
 
 canvas {
@@ -34,13 +53,13 @@ canvas {
 }
 
 #minimapCanvas {
+  position: absolute;
   width: 200px;
   height: 200px;
-  border: 2px solid white;
-  position: absolute;
   right: 20px;
   bottom: 20px;
   background: #222;
+  border: 2px solid #f5f552;
+  border-radius: 4px;
   z-index: 5;
 }
-
