@@ -20,7 +20,7 @@ document.getElementById("startBtn").onclick = () => {
   playerName = document.getElementById("usernameInput").value.trim();
   if (!playerName) return;
   document.getElementById("loginScreen").style.display = "none";
-  socket = new WebSocket("wss://clashdotbackend.onrender.com");
+  socket = new WebSocket("wss://plorrabackend.onrender.com");
 
   socket.onopen = () => {
     socket.send(JSON.stringify({ type: "join", name: playerName }));
