@@ -3,18 +3,23 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Clashdot.io</title>
+  <title>Plorra.io</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <!-- Login Screen -->
   <div id="loginScreen">
-    <input type="text" id="usernameInput" placeholder="Enter username" />
+    <h1>Plorra.io</h1>
+    <input type="text" id="usernameInput" placeholder="Enter username" maxlength="15" />
     <button id="startBtn">Start Game</button>
   </div>
+
+  <!-- Game Canvas -->
   <canvas id="gameCanvas"></canvas>
-  <canvas id="minimapCanvas"></canvas>
+
+  <!-- Minimap -->
+  <canvas id="minimapCanvas" width="200" height="200"></canvas>
 
   <script src="game.js"></script>
 </body>
 </html>
-
