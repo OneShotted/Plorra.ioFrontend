@@ -1,25 +1,27 @@
 const canvas = document.getElementById("gameCanvas");
 const minimap = document.getElementById("minimapCanvas");
 const ctx = canvas.getContext("2d");
-const minimapCtx = minimap.getContext("2d");
+const miniCtx = minimap.getContext("2d");
 
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
-let socket;
-let playerId = null;
-let players = {};
-let playerName = "";
 const mapSize = 4000;
+let socket, playerId = null, players = {}, playerName = "";
 
 const keys = {};
-document.addEventListener("keydown", (e) => keys[e.key.toLowerCase()] = true);
-document.addEventListener("keyup", (e) => keys[e.key.toLowerCase()] = false);
+document.addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
+document.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
 
+const zones = []; // Wall clusters
+generateZones();
+
+// UI login
 document.getElementById("startBtn").onclick = () => {
   playerName = document.getElementById("usernameInput").value.trim();
   if (!playerName) return;
   document.getElementById("loginScreen").style.display = "none";
+
   socket = new WebSocket("wss://plorrabackend.onrender.com");
 
   socket.onopen = () => {
@@ -28,91 +30,117 @@ document.getElementById("startBtn").onclick = () => {
 
   socket.onmessage = (msg) => {
     const data = JSON.parse(msg.data);
-    if (data.type === "init") {
-      playerId = data.id;
-    } else if (data.type === "state") {
-      players = data.players;
-    }
+    if (data.type === "init") playerId = data.id;
+    else if (data.type === "state") players = data.players;
   };
 
   gameLoop();
 };
 
+function generateZones() {
+  for (let i = 0; i < 20; i++) {
+    const walls = [];
+    const cx = Math.random() * mapSize;
+    const cy = Math.random() * mapSize;
+
+    for (let a = 0; a < 2 * Math.PI; a += 0.3) {
+      const r = 30 + a * 25;
+      const x = cx + Math.cos(a) * r;
+      const y = cy + Math.sin(a) * r;
+      walls.push({ x, y, w: 20, h: 20 });
+    }
+
+    zones.push(walls);
+  }
+}
+
 function drawMap(ctx, camX, camY) {
-  ctx.fillStyle = "#444";
+  ctx.fillStyle = "#3a3a3a";
   ctx.fillRect(-camX, -camY, mapSize, mapSize);
 
-  ctx.strokeStyle = "#666";
-  for (let x = 0; x < mapSize; x += 100) {
-    ctx.beginPath();
-    ctx.moveTo(x - camX, -camY);
-    ctx.lineTo(x - camX, mapSize - camY);
-    ctx.stroke();
+  for (const zone of zones) {
+    for (const wall of zone) {
+      ctx.fillStyle = "#5f5";
+      ctx.fillRect(wall.x - camX, wall.y - camY, wall.w, wall.h);
+    }
   }
-  for (let y = 0; y < mapSize; y += 100) {
-    ctx.beginPath();
-    ctx.moveTo(-camX, y - camY);
-    ctx.lineTo(mapSize - camX, y - camY);
-    ctx.stroke();
+}
+
+function drawMinimap(self) {
+  const scale = minimap.width / mapSize;
+  miniCtx.clearRect(0, 0, minimap.width, minimap.height);
+
+  for (const zone of zones) {
+    for (const wall of zone) {
+      miniCtx.fillStyle = "#5f5";
+      miniCtx.fillRect(wall.x * scale, wall.y * scale, 3, 3);
+    }
   }
+
+  for (const id in players) {
+    const p = players[id];
+    miniCtx.fillStyle = id === playerId ? "lime" : "gray";
+    miniCtx.fillRect(p.x * scale, p.y * scale, 4, 4);
+  }
+
+  miniCtx.strokeStyle = "white";
+  miniCtx.strokeRect(0, 0, minimap.width, minimap.height);
 }
 
 function drawPlayer(p, camX, camY) {
   const { x, y, name } = p;
-  const radius = 20;
+  const r = 20;
 
   ctx.fillStyle = "yellow";
   ctx.beginPath();
-  ctx.arc(x - camX, y - camY, radius, 0, Math.PI * 2);
+  ctx.arc(x - camX, y - camY, r, 0, Math.PI * 2);
   ctx.fill();
 
-  // Eyes
   ctx.fillStyle = "black";
   ctx.beginPath();
   ctx.arc(x - camX - 6, y - camY - 5, 3, 0, Math.PI * 2);
   ctx.arc(x - camX + 6, y - camY - 5, 3, 0, Math.PI * 2);
   ctx.fill();
 
-  // Smile
   ctx.beginPath();
   ctx.arc(x - camX, y - camY + 5, 8, 0, Math.PI);
   ctx.stroke();
 
-  // Name
   ctx.fillStyle = "white";
   ctx.font = "12px Arial";
   ctx.textAlign = "center";
   ctx.fillText(name, x - camX, y - camY - 25);
 }
 
-function drawMinimap(self) {
-  minimapCtx.clearRect(0, 0, minimap.width, minimap.height);
-  const scale = minimap.width / mapSize;
-
-  for (const id in players) {
-    const p = players[id];
-    minimapCtx.fillStyle = id === playerId ? "lime" : "gray";
-    minimapCtx.fillRect(p.x * scale, p.y * scale, 4, 4);
-  }
-
-  // Border
-  minimapCtx.strokeStyle = "white";
-  minimapCtx.strokeRect(0, 0, minimap.width, minimap.height);
-}
-
 function gameLoop() {
   requestAnimationFrame(gameLoop);
-
   if (!players[playerId]) return;
   const self = players[playerId];
 
-  if (keys["w"]) self.y -= 4;
-  if (keys["s"]) self.y += 4;
-  if (keys["a"]) self.x -= 4;
-  if (keys["d"]) self.x += 4;
+  const speed = 4;
+  let dx = 0, dy = 0;
+  if (keys["w"]) dy -= speed;
+  if (keys["s"]) dy += speed;
+  if (keys["a"]) dx -= speed;
+  if (keys["d"]) dx += speed;
 
-  self.x = Math.max(0, Math.min(mapSize, self.x));
-  self.y = Math.max(0, Math.min(mapSize, self.y));
+  // Move & collision
+  let nextX = self.x + dx;
+  let nextY = self.y + dy;
+
+  const collided = zones.some(zone =>
+    zone.some(w => (
+      nextX > w.x - 20 &&
+      nextX < w.x + w.w + 20 &&
+      nextY > w.y - 20 &&
+      nextY < w.y + w.h + 20
+    ))
+  );
+
+  if (!collided) {
+    self.x = Math.max(0, Math.min(mapSize, nextX));
+    self.y = Math.max(0, Math.min(mapSize, nextY));
+  }
 
   socket.send(JSON.stringify({ type: "move", x: self.x, y: self.y }));
 
@@ -122,10 +150,7 @@ function gameLoop() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   drawMap(ctx, camX, camY);
 
-  for (const id in players) {
-    drawPlayer(players[id], camX, camY);
-  }
-
+  for (const id in players) drawPlayer(players[id], camX, camY);
   drawMinimap(self);
 }
 
